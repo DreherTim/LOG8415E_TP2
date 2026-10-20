@@ -1,0 +1,12 @@
+{
+  "worker1": {
+    "ip": "worker1",
+    "port": "5000",
+    "status": "free"
+  },
+  "worker2": {
+    "ip": "worker2",
+    "port": "5000",
+    "status": "free"
+  }
+}
