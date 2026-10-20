@@ -1,3 +1,25 @@
+# macOS
+.DS_Store
+
+# JetBrains IDEs
+.idea/
+
+# AWS / secrets
+*.pem
+.aws/
+credentials
+*.key
+
+# Model caches
+.cache/
+models/
+
+# LaTeX build files
+*.aux
+*.log
+*.out
+*.synctex.gz
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
