@@ -1,0 +1,8 @@
+services:
+  orchestrator:
+    build: .
+    ports:
+      - "80:80"
+    volumes:
+      - ./status.json:/app/status.json
+    restart: unless-stopped
