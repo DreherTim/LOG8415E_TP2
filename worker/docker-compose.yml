@@ -1,0 +1,6 @@
+services:
+  worker:
+    build: .
+    ports:
+      - "5001:5000"
+    restart: unless-stopped
