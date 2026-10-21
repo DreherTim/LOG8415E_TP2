@@ -1,11 +1,12 @@
 """
 Orchestrator (inital version): receives requests on port 80 and forwards
 them to a free worker which are tracked in status.json.
-No queue yet: if both workers are not available, the request is rejected with 503.
+Requests wait in a FIFO queue when both workers are busy.
 """
 import json
 import os
 import threading
+from collections import deque
 
 import requests
 from flask import Flask, request, jsonify
@@ -14,6 +15,8 @@ app = Flask(__name__)
 
 STATUS_FILE = os.getenv("STATUS_FILE", "status.json")
 status_lock = threading.Lock()  # protects status.json from concurrent writes
+request_queue = deque()
+queue_condition = threading.Condition()  # coordinates waiting requests
 
 
 def read_status():
@@ -51,10 +54,18 @@ def new_request():
     if not incoming_data or "text" not in incoming_data:
         return jsonify(error="JSON body with a 'text' field is required"), 400
 
-    worker = find_free_worker()
-    if worker is None:
-        # TODO: queue the request instead of just rejecting it -> Tim, Dalya or isabela
-        return jsonify(error="all workers are busy"), 503
+    # Join the FIFO queue. Only the request at the front may claim a free worker.
+    ticket = object()
+    with queue_condition:
+        request_queue.append(ticket)
+        while True:
+            if request_queue[0] is ticket:
+                worker = find_free_worker()
+                if worker is not None:
+                    request_queue.popleft()
+                    queue_condition.notify_all()
+                    break
+            queue_condition.wait()
 
     name, info = worker
     try:
@@ -67,6 +78,8 @@ def new_request():
         return jsonify(error=f"worker {name} failed: {e}"), 502
     finally:
         set_worker_status(name, "free")
+        with queue_condition:
+            queue_condition.notify_all()  # dispatch the next queued request
 
 
 if __name__ == "__main__":
