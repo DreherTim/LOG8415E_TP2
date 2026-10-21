@@ -1,3 +1,4 @@
+#!/bin/bash
 set -Eeuo pipefail
 exec > >(tee -a /var/log/tp2-bootstrap.log | logger -t tp2-bootstrap -s 2>/dev/console) 2>&1
 
@@ -27,8 +28,8 @@ if [[ "$ROLE" == "orchestrator" ]]; then
 import json, sys
 with open('status.json', 'w') as f:
     json.dump({
-        'worker1': {'ip': sys.argv[1], 'port': '5001', 'status': 'free'},
-        'worker2': {'ip': sys.argv[2], 'port': '5001', 'status': 'free'},
+        'worker1': {'ip': sys.argv[1], 'port': '5000', 'status': 'free'},
+        'worker2': {'ip': sys.argv[2], 'port': '5000', 'status': 'free'},
     }, f, indent=2)
 PY
 fi

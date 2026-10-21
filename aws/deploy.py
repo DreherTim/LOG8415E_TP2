@@ -5,12 +5,15 @@ import json
 import os
 import pathlib
 import re
+import subprocess
 import sys
 import time
-from datetime import timezone
+import urllib.error
+import urllib.request
 from urllib.parse import urlparse
 
 ROOT = pathlib.Path(__file__).resolve().parent
+TEST_SCRIPT = ROOT.parent / 'tests' / 'test_aws.py'
 STATE = ROOT / '.deployment-state.json'
 TAG = 'log8415e-tp2'
 
@@ -49,13 +52,34 @@ def parse_args():
     p.add_argument('--key-name', help='Existing EC2 key pair for SSH, if desired')
     p.add_argument('--ssh-cidr', help='Admin CIDR for port 22, e.g. 203.0.113.7/32 (optional)')
     p.add_argument('--name', default=TAG, help='Unique tag prefix for the deployment')
+    p.add_argument('--ready-timeout', type=int, default=1200,
+                   help='Seconds to wait for Docker builds and model download (default 1200)')
+    p.add_argument('--skip-tests', action='store_true', help='Do not run test_requests.py after deploy')
     return p.parse_args()
+
+
+def wait_until_ready(ip, timeout):
+    """Poll the orchestrator's /health until it and both workers answer."""
+    url = f'http://{ip}/health'
+    deadline = time.time() + timeout
+    start = time.time()
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=5) as resp:
+                if resp.status == 200:
+                    print(f'System ready after {int(time.time() - start)}s: {resp.read().decode()}')
+                    return True
+        except (urllib.error.URLError, OSError):
+            pass  # orchestrator not up yet, or a worker still building (503)
+        print(f'  waiting for bootstrap... {int(time.time() - start)}s', flush=True)
+        time.sleep(20)
+    return False
 
 
 def latest_ubuntu(ec2):
     images = ec2.describe_images(Owners=['099720109477'], Filters=[
         {'Name': 'name', 'Values': ['ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*',
-                                     'ubuntu/images/hvm-ssd-gp3/ubuntu-jammy-22.04-amd64-server-*']},
+                                    'ubuntu/images/hvm-ssd-gp3/ubuntu-jammy-22.04-amd64-server-*']},
         {'Name': 'state', 'Values': ['available']},
     ])['Images']
     if not images:
@@ -71,7 +95,7 @@ def choose_network(ec2, subnet_id):
         if not vpcs:
             raise RuntimeError('No default VPC; provide --subnet-id.')
         subnets = ec2.describe_subnets(Filters=[{'Name': 'vpc-id', 'Values': [vpcs[0]['VpcId']]},
-                                              {'Name': 'default-for-az', 'Values': ['true']}])['Subnets']
+                                                {'Name': 'default-for-az', 'Values': ['true']}])['Subnets']
     if not subnets:
         raise RuntimeError('No suitable subnet.')
     subnet = sorted(subnets, key=lambda s: s['SubnetId'])[0]
@@ -91,9 +115,9 @@ def create_groups(ec2, vpc, name, ssh_cidr):
         'IpProtocol': 'tcp', 'FromPort': 80, 'ToPort': 80,
         'IpRanges': [{'CidrIp': '0.0.0.0/0', 'Description': 'Client HTTP'}]
     }])
-    # Existing Compose exposes host:5001 -> container:5000; keep it unchanged for now.
+    # Workers listen on port 5000, reachable only from the orchestrator's security group.
     ec2.authorize_security_group_ingress(GroupId=worker, IpPermissions=[{
-        'IpProtocol': 'tcp', 'FromPort': 5001, 'ToPort': 5001,
+        'IpProtocol': 'tcp', 'FromPort': 5000, 'ToPort': 5000,
         'UserIdGroupPairs': [{'GroupId': orchestrator, 'Description': 'Orchestrator only'}]
     }])
     if ssh_cidr:
@@ -138,7 +162,7 @@ def main():
     print(json.dumps({'region': args.region, 'instance_type': args.instance_type,
                       'instances': ['worker1', 'worker2', 'orchestrator'],
                       'repository': args.repo_url, 'ref': args.repo_ref,
-                      'worker_host_port': 5001, 'worker_container_port': 5000,
+                      'worker_port': 5000,
                       'mode': 'DEPLOY'}, indent=2))
     if STATE.exists():
         raise SystemExit(f'{STATE} exists. Clean up previous deployment before recreating.')
@@ -166,10 +190,21 @@ def main():
         save_state(state)
         ec2.get_waiter('instance_running').wait(InstanceIds=[orch_id], WaiterConfig={'Delay': 10, 'MaxAttempts': 36})
         orch = ec2.describe_instances(InstanceIds=[orch_id])['Reservations'][0]['Instances'][0]
-        print(f'Created EC2 resources. Orchestrator public IP: {orch.get("PublicIpAddress", "unavailable")}')
-        print('EC2 running does NOT mean cloud-init, Docker build, or model download succeeded.')
-        print('Wait for bootstrap; then test POST http://PUBLIC_IP/new_request .')
-        print('Check logs with SSH: sudo tail -f /var/log/tp2-bootstrap.log')
+        public_ip = orch.get('PublicIpAddress')
+        state['orchestrator_public_ip'] = public_ip
+        state['worker_private_ips'] = list(ips)
+        save_state(state)
+        print(f'Created EC2 resources. Orchestrator public IP: {public_ip}')
+        print('Installing Docker and building images on the instances (takes several minutes)...')
+        if not public_ip or not wait_until_ready(public_ip, args.ready_timeout):
+            print('System did not become ready in time. Check logs via SSH: '
+                  'sudo tail -f /var/log/tp2-bootstrap.log', file=sys.stderr)
+            sys.exit(1)
+        if not args.skip_tests:
+            # test_aws.py reads the orchestrator IP from the deployment state file.
+            subprocess.run([sys.executable, str(TEST_SCRIPT)], check=False)
+        print(f'\nSend your own request: curl -X POST http://{public_ip}/new_request '
+              '-H "Content-Type: application/json" -d \'{"text": "I love cloud computing"}\'')
         print('Cleanup: python aws/cleanup.py')
     except Exception:
         # Persisted state permits safe, explicit cleanup of partially created infrastructure.
