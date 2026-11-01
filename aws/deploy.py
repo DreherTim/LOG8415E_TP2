@@ -1,16 +1,15 @@
-"""Provision LOG8415E TP2 in AWS.
-"""
 import argparse
+import base64
+import io
+import tarfile
 import json
 import os
 import pathlib
-import re
 import subprocess
 import sys
 import time
 import urllib.error
 import urllib.request
-from urllib.parse import urlparse
 
 ROOT = pathlib.Path(__file__).resolve().parent
 TEST_SCRIPT = ROOT.parent / 'tests' / 'test_aws.py'
@@ -18,34 +17,40 @@ STATE = ROOT / '.deployment-state.json'
 TAG = 'log8415e-tp2'
 
 
-def make_userdata(role, repo, ref, ips=('', '')):
-    template = (ROOT / 'user_data.sh').read_text()
-    substitutions = {
-        '__ROLE__': role,
-        '__REPO_URL__': repo,
-        '__REPO_REF__': ref,
-        '__WORKER1_IP__': ips[0],
-        '__WORKER2_IP__': ips[1],
-    }
-    for key, value in substitutions.items():
-        template = template.replace(key, value)
-    return template
+def make_userdata(role, ips=("", "")):
+    """Embed a compressed copy of the *local* role directory in EC2 user data.
 
+    """
+    project_root = ROOT.parent
+    role_dir = project_root / role
+    required = ["app.py", "Dockerfile", "docker-compose.yml", "requirements.txt"]
+    if role == "orchestrator":
+        required.append("status.json")
+    missing = [filename for filename in required if not (role_dir / filename).is_file()]
+    if missing:
+        raise FileNotFoundError(f"Missing local {role} files: {', '.join(missing)}")
 
-def validate_repo(repo, ref):
-    parsed = urlparse(repo)
-    if parsed.scheme != 'https' or parsed.hostname not in {'github.com'} or parsed.username or parsed.password:
-        raise ValueError('Use an anonymous HTTPS github.com clone URL; never embed tokens.')
-    if not re.fullmatch(r'[A-Za-z0-9_.\-/]+', parsed.path) or parsed.path in {'/', ''}:
-        raise ValueError('Invalid repository path.')
-    if not re.fullmatch(r'[A-Za-z0-9_.\-/]+', ref) or ref.startswith('-'):
-        raise ValueError('Invalid git branch/tag.')
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+        for filename in required:
+            # Archive paths are only in worker/ or orchestrator/, no secrets.
+            archive.add(role_dir / filename, arcname=f"{role}/{filename}")
+    payload = base64.b64encode(buffer.getvalue()).decode("ascii")
+    template = (ROOT / "user_data.sh").read_text(encoding="utf-8")
+    result = (template.replace("__ROLE__", role)
+                      .replace("__WORKER1_IP__", ips[0])
+                      .replace("__WORKER2_IP__", ips[1])
+                      .replace("__APP_ARCHIVE_BASE64__", payload))
+    data_size = len(result.encode("utf-8"))
+    if data_size > 16 * 1024:
+        raise ValueError(f"EC2 user data is {data_size} bytes; 16 KiB max. "
+                         "Reduce role files or use S3 for deployment instead.")
+    print(f"  Embedded local {role} files in EC2 user data ({data_size} bytes)")
+    return result
 
 
 def parse_args():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--repo-url', default='https://github.com/DreherTim/LOG8415E_TP2.git')
-    p.add_argument('--repo-ref', default='main', help='Git branch or tag accessible to git clone')
     p.add_argument('--region', default=os.getenv('AWS_REGION', 'us-east-1'))
     p.add_argument('--instance-type', default='t2.large')
     p.add_argument('--subnet-id', help='Subnet for all three instances (default VPC first available subnet)')
@@ -54,23 +59,31 @@ def parse_args():
     p.add_argument('--name', default=TAG, help='Unique tag prefix for the deployment')
     p.add_argument('--ready-timeout', type=int, default=1200,
                    help='Seconds to wait for Docker builds and model download (default 1200)')
-    p.add_argument('--skip-tests', action='store_true', help='Do not run test_requests.py after deploy')
+    p.add_argument('--skip-tests', action='store_true', help='Do not run tests/test_aws.py after deploy')
+    p.add_argument('--check-only', action='store_true', help='Validate local source and user-data sizes without using AWS')
     return p.parse_args()
 
 
 def wait_until_ready(ip, timeout):
-    """Poll the orchestrator's /health until it and both workers answer."""
-    url = f'http://{ip}/health'
+    """Wait until the orchestrator successfully processes a real POST request."""
+    url = f'http://{ip}/new_request'
     deadline = time.time() + timeout
     start = time.time()
     while time.time() < deadline:
         try:
-            with urllib.request.urlopen(url, timeout=5) as resp:
+            req = urllib.request.Request(
+                url,
+                data=json.dumps({'text': 'health check'}).encode('utf-8'),
+                headers={'Content-Type': 'application/json'},
+                method='POST',
+            )
+            with urllib.request.urlopen(req, timeout=30) as resp:
                 if resp.status == 200:
-                    print(f'System ready after {int(time.time() - start)}s: {resp.read().decode()}')
+                    print(f'System responding after {int(time.time() - start)}s: '
+                          f'{resp.read().decode()}')
                     return True
-        except (urllib.error.URLError, OSError):
-            pass  # orchestrator not up yet, or a worker still building (503)
+        except (urllib.error.URLError, OSError, TimeoutError):
+            pass  # App may be booting or workers may not be ready yet.
         print(f'  waiting for bootstrap... {int(time.time() - start)}s', flush=True)
         time.sleep(20)
     return False
@@ -132,8 +145,7 @@ def create_groups(ec2, vpc, name, ssh_cidr):
 def start_instance(ec2, args, ami, subnet, sg, role, ips=('', '')):
     kwargs = dict(ImageId=ami, InstanceType=args.instance_type, MinCount=1, MaxCount=1,
                   SubnetId=subnet, SecurityGroupIds=[sg],
-                  UserData=make_userdata('worker' if role.startswith('worker') else 'orchestrator',
-                                         args.repo_url, args.repo_ref, ips),
+                  UserData=make_userdata('worker' if role.startswith('worker') else 'orchestrator', ips),
                   NetworkInterfaces=None,
                   TagSpecifications=[{'ResourceType': 'instance', 'Tags': [
                       {'Key': 'Name', 'Value': f'{args.name}-{role}'},
@@ -153,7 +165,6 @@ def save_state(data):
 
 def main():
     args = parse_args()
-    validate_repo(args.repo_url, args.repo_ref)
     if args.ssh_cidr:
         import ipaddress
         ipaddress.ip_network(args.ssh_cidr, strict=False)
@@ -161,9 +172,15 @@ def main():
             raise ValueError('--ssh-cidr requires --key-name')
     print(json.dumps({'region': args.region, 'instance_type': args.instance_type,
                       'instances': ['worker1', 'worker2', 'orchestrator'],
-                      'repository': args.repo_url, 'ref': args.repo_ref,
+                      'source': 'local files in worker/ and orchestrator/',
                       'worker_port': 5000,
                       'mode': 'DEPLOY'}, indent=2))
+    # Validate locally before creating billable AWS resources.
+    make_userdata('worker')
+    make_userdata('orchestrator', ('10.0.0.1', '10.0.0.2'))
+    if args.check_only:
+        print('Local source check passed. No AWS resources created.')
+        return
     if STATE.exists():
         raise SystemExit(f'{STATE} exists. Clean up previous deployment before recreating.')
     import boto3
