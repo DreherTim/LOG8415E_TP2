@@ -1,11 +1,20 @@
-"""AWS integration tests for LOG8415E TP2.
+"""LOG8415E TP2: AWS integration tests, live AWS FIFO, local FIFO simulation.
 
-Run: python3 tests/test_aws.py
-Reads the deployment state and resolves the orchestrator public IP with boto3.
-Creates tests/results_aws.json.
+Run all:        python3 tests/test_aws.py
+Run local only: python3 tests/test_aws.py --local-only
+Run AWS only:   python3 tests/test_aws.py --aws-only
+
+Live FIFO requires new orchestrator/app.py and worker/app.py deployed on AWS.
+Results are saved to tests/results_aws.json.
 """
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import argparse
+import importlib.util
+import sys
+import tempfile
+from threading import Lock
+from unittest.mock import patch
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Event
@@ -164,7 +173,94 @@ def run_invalid_payload(url):
     return result
 
 
-def main():
+
+def run_live_fifo_test(url):
+    """End-to-end FIFO check using slow *real* AWS workers.
+
+    Two requests occupy both workers, then A-E are submitted one after
+    another. Orchestrator response metadata captures actual server arrival
+    and dispatch order; HTTP response completion order is not used.
+    """
+    queued_names = ["A", "B", "C", "D", "E"]
+    gate = Event()
+    with ThreadPoolExecutor(max_workers=7) as pool:
+        futures = {}
+        for name in ("warmup1", "warmup2"):
+            text = f"live FIFO {name}: A wonderful movie."
+            futures[name] = pool.submit(send_valid, url, text, name, gate)
+        gate.set()
+        # Give the first pair time to reserve worker1 and worker2.
+        time.sleep(0.50)
+        for name in queued_names:
+            text = f"live FIFO {name}: A wonderful movie."
+            futures[name] = pool.submit(send_valid, url, text, name)
+            # Stagger queued arrivals so the server can observe their order.
+            time.sleep(0.12)
+        results = {name: future.result() for name, future in futures.items()}
+
+    errors = []
+    for name, result in results.items():
+        if not result.get("passed"):
+            errors.append(f"{name} HTTP/JSON response failed: {result.get('validation_errors')}")
+        metric = (result.get("response") or {}).get("queue_metrics") if isinstance(result.get("response"), dict) else None
+        if not isinstance(metric, dict) or any(
+            not isinstance(metric.get(field), int) or isinstance(metric.get(field), bool)
+            for field in ("arrival_seq", "dispatch_seq")
+        ) or not isinstance(metric.get("was_queued"), bool) or not isinstance(metric.get("wait_seconds"), (int, float)):
+            errors.append(f"{name} missing queue_metrics (deploy new orchestrator/app.py)")
+
+    arrivals = []
+    dispatches = []
+    queued_count = 0
+    if not errors:
+        for name, result in results.items():
+            m = result["response"]["queue_metrics"]
+            arrivals.append((m["arrival_seq"], name))
+            dispatches.append((m["dispatch_seq"], name))
+        # FIFO is proved by *server-observed* order, not thread launch order.
+        arrival_order = [name for _, name in sorted(arrivals)]
+        dispatch_order = [name for _, name in sorted(dispatches)]
+        if len(set(seq for seq, _ in arrivals)) != 7 or len(set(seq for seq, _ in dispatches)) != 7:
+            errors.append("Duplicate arrival or dispatch sequence numbers")
+        if arrival_order != dispatch_order:
+            errors.append("FIFO violation: server arrival order != dispatch order")
+        # Thread/network scheduling may reorder A-E before they reach AWS.
+        # FIFO means dispatch order equals ACTUAL server arrival order,
+        # not necessarily the order in which the client launched threads.
+        observed_queued_order = [name for name in arrival_order if name in queued_names]
+        observed_queued_dispatch = [name for name in dispatch_order if name in queued_names]
+        if observed_queued_order != observed_queued_dispatch:
+            errors.append("FIFO violation among queued A-E requests")
+        queued_count = sum(bool(results[name]["response"]["queue_metrics"]["was_queued"])
+                           for name in queued_names)
+        max_wait = max(results[name]["response"]["queue_metrics"]["wait_seconds"]
+                       for name in queued_names)
+        if queued_count < 3 or max_wait < 0.5:
+            errors.append("Insufficient evidence of a real queue: fewer than 3 A-E requests waited "
+                          "or maximum wait < 0.5s; verify PROCESSING_DELAY on AWS")
+        warmup_workers = {results[name]["response"]["worker"] for name in ("warmup1", "warmup2")}
+        if len(warmup_workers) != 2:
+            errors.append("Warmup requests did not use both workers")
+    else:
+        arrival_order = []
+        dispatch_order = []
+        max_wait = 0
+
+    return {
+        "passed": not errors,
+        "environment": "AWS real workers with processing delay",
+        "requests_sent": len(results),
+        "staggered_queue_order": queued_names,
+        "server_arrival_order": arrival_order,
+        "server_dispatch_order": dispatch_order,
+        "queued_requests_A_to_E": queued_count,
+        "max_queue_wait_seconds": max_wait,
+        "fifo_proven_on_aws": not errors,
+        "errors": errors,
+        "requests": results,
+    }
+
+def run_aws_tests():
     try:
         orchestrator_ip = get_orchestrator_ip()
     except Exception as exc:
@@ -210,23 +306,190 @@ def main():
           f"{burst['successful_responses']}/{BURST_REQUESTS} valid; "
           f"workers: {burst['workers_observed']}")
 
+    print("[5/5] Real AWS FIFO queue verification (delayed workers + arrival/dispatch sequence)")
+    live_fifo = run_live_fifo_test(url)
+    report["tests"]["live_fifo"] = live_fifo
+    print(f"  {'PASS' if live_fifo['passed'] else 'FAIL'}: "
+          f"{live_fifo['queued_requests_A_to_E']}/5 queued A-E requests; "
+          f"max wait={live_fifo['max_queue_wait_seconds']}s")
+    print("  Arrival order:", live_fifo["server_arrival_order"])
+    print("  Dispatch order:", live_fifo["server_dispatch_order"])
+    for error in live_fifo["errors"]:
+        print("  ERROR:", error)
+
     report["summary"] = {
         "all_http_and_response_checks_passed": all([
             single["passed"], invalid["passed"], parallel["passed"], burst["passed"]
         ]),
         "both_workers_used_during_tests": len(set(parallel["workers_observed"] + burst["workers_observed"])) == 2,
-        "fifo_queue_verified": False,
-        "note": "End-to-end HTTP checks only; FIFO order is not proven by these tests.",
+        "fifo_queue_verified_on_aws": live_fifo["passed"],
+        "note": "Live FIFO uses orchestrator arrival/dispatch metrics and delayed AWS workers.",
+    }
+    print("AWS response checks passed:", report["summary"]["all_http_and_response_checks_passed"])
+    print("Both workers observed:", report["summary"]["both_workers_used_during_tests"])
+    print("FIFO proven on AWS:", report["summary"]["fifo_queue_verified_on_aws"])
+    return report
+
+
+# Local FIFO test: no AWS requests and no modification to deployed workers.
+class FakeWorkerResponse:
+    status_code = 200
+
+    def __init__(self, text):
+        self.text = text
+
+    def json(self):
+        return {"text": self.text, "label": "POSITIVE", "score": 0.99}
+
+
+def run_local_fifo_test():
+    """Verify queue dispatch order using the team's actual orchestrator code.
+
+    Mocks the worker HTTP calls so results are deterministic and do not
+    depend on AWS or on any real ML inference.
+    """
+    orchestrator_file = Path(__file__).resolve().parents[1] / "orchestrator" / "app.py"
+    if not orchestrator_file.is_file():
+        raise RuntimeError(f"Orchestrator source not found: {orchestrator_file}")
+    spec = importlib.util.spec_from_file_location("tp2_orchestrator_for_test", orchestrator_file)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("Could not load the team's orchestrator source")
+    orchestrator = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(orchestrator)
+
+    names = ["A", "B", "C", "D", "E"]
+    dispatch_order = []
+    dispatch_lock = Lock()
+
+    def fake_post(url, json, timeout):
+        with dispatch_lock:
+            dispatch_order.append(json["text"])
+        time.sleep(0.05)
+        return FakeWorkerResponse(json["text"])
+
+    def send_request(text):
+        with orchestrator.app.test_client() as client:
+            response = client.post("/new_request", json={"text": text})
+            return response.status_code, response.get_json()
+
+    def wait_until_queued(expected, timeout=10):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            with orchestrator.queue_condition:
+                count = len(orchestrator.request_queue)
+            if count == expected:
+                return
+            time.sleep(0.01)
+        raise AssertionError(f"Expected {expected} queued requests, found {count}")
+
+    with tempfile.TemporaryDirectory(prefix="tp2_fifo_") as folder:
+        status_path = Path(folder) / "status.json"
+        status_path.write_text(json.dumps({
+            "worker1": {"ip": "127.0.0.1", "port": "5000", "status": "busy"},
+            "worker2": {"ip": "127.0.0.1", "port": "5000", "status": "busy"},
+        }), encoding="utf-8")
+        orchestrator.STATUS_FILE = str(status_path)
+
+        with patch.object(orchestrator.requests, "post", side_effect=fake_post):
+            with ThreadPoolExecutor(max_workers=len(names)) as pool:
+                futures = {}
+                for number, name in enumerate(names, start=1):
+                    futures[name] = pool.submit(send_request, name)
+                    wait_until_queued(number)
+
+                print("Five requests queued:", names)
+                if dispatch_order:
+                    raise AssertionError("A request started while both workers were busy")
+
+                orchestrator.set_worker_status("worker1", "free")
+                with orchestrator.queue_condition:
+                    orchestrator.queue_condition.notify_all()
+
+                results = {name: futures[name].result(timeout=15) for name in names}
+
+        print("Actual dispatch order:", dispatch_order)
+        if dispatch_order != names:
+            raise AssertionError(f"FIFO mismatch: expected {names}, got {dispatch_order}")
+        if not all(code == 200 and data.get("text") == name
+                   for name, (code, data) in results.items()):
+            raise AssertionError("Some requests failed or responses were mismatched")
+        if orchestrator.request_queue:
+            raise AssertionError("Queue was not drained")
+        if orchestrator.read_status()["worker1"]["status"] != "free":
+            raise AssertionError("Worker 1 was not released at the end")
+    print("PASS: all 5 requests dispatched in FIFO order and completed.")
+    print("NOTE: This checks local queue logic with simulated workers, not AWS FIFO.")
+    return {"passed": True, "queued_order": names,
+            "dispatch_order": dispatch_order,
+            "environment": "local simulated workers",
+            "fifo_proven_on_aws": False}
+
+
+
+def main():
+    parser = argparse.ArgumentParser(description="AWS response tests, live FIFO verification, and local FIFO verification")
+    choices = parser.add_mutually_exclusive_group()
+    choices.add_argument("--local-only", action="store_true", help="Run FIFO simulation without AWS")
+    choices.add_argument("--aws-only", action="store_true", help="Run AWS integration tests including live FIFO")
+    args = parser.parse_args()
+
+    report = {"tested_at": timestamp(), "tests": {}, "summary": {}}
+    # When running a single test group, preserve results from earlier runs.
+    if (args.local_only or args.aws_only) and OUTPUT_FILE.is_file():
+        try:
+            previous = json.loads(OUTPUT_FILE.read_text(encoding="utf-8"))
+            if isinstance(previous, dict) and isinstance(previous.get("tests"), dict):
+                report = previous
+                report["last_updated_at"] = timestamp()
+        except (OSError, ValueError):
+            pass
+    overall_passed = True
+
+    if not args.local_only:
+        print("===== AWS integration tests =====")
+        try:
+            aws = run_aws_tests()
+            # Preserve original AWS test names in results_aws.json.
+            report.update({key: value for key, value in aws.items() if key != "tests"})
+            report["tests"].update(aws["tests"])
+            aws_ok = (aws["summary"]["all_http_and_response_checks_passed"]
+                      and aws["summary"]["both_workers_used_during_tests"]
+                      and aws["summary"]["fifo_queue_verified_on_aws"])
+        except Exception as exc:
+            aws_ok = False
+            report["tests"]["aws_error"] = str(exc)
+            print(f"FAIL: AWS tests could not run: {exc}")
+        overall_passed = overall_passed and aws_ok
+
+    if not args.aws_only:
+        print("\n[6/6] Local FIFO queue verification (simulated workers)" if not args.local_only
+              else "\nLocal FIFO queue verification (simulated workers)")
+        try:
+            fifo = run_local_fifo_test()
+        except Exception as exc:
+            fifo = {"passed": False, "error": str(exc), "environment": "local simulated workers",
+                    "fifo_proven_on_aws": False}
+            print(f"FAIL: {exc}")
+        report["tests"]["local_fifo"] = fifo
+        overall_passed = overall_passed and fifo["passed"]
+
+    # Distinguish local FIFO proof from unproven ordering on AWS.
+    old_summary = report.get("summary", {})
+    report["summary"] = {
+        **old_summary,
+        "local_fifo_test_passed": report["tests"].get("local_fifo", {}).get("passed"),
+        "fifo_queue_verified_on_aws": report["tests"].get("live_fifo", {}).get("passed", False),
+        "all_selected_tests_passed": overall_passed,
+        "note": "Live FIFO runs on delayed AWS workers; local FIFO test is separate.",
     }
     OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
     OUTPUT_FILE.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(f"\nResults saved to: {OUTPUT_FILE}")
-    print("All response checks passed:", report["summary"]["all_http_and_response_checks_passed"])
-    print("Both workers observed:", report["summary"]["both_workers_used_during_tests"])
-    print("FIFO proven: no (requires controlled instrumentation/slow workers)")
-    if not report["summary"]["all_http_and_response_checks_passed"]:
+    print("OVERALL:", "PASS" if overall_passed else "FAIL")
+    if not overall_passed:
         raise SystemExit(1)
 
 
 if __name__ == "__main__":
     main()
+
