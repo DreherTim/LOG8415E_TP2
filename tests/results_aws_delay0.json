@@ -1,0 +1,546 @@
+{
+  "tested_at": "2026-11-01T20:47:44.092821+00:00",
+  "tests": {
+    "single": {
+      "http_status": 200,
+      "response": {
+        "label": "POSITIVE",
+        "queue_metrics": {
+          "arrival_seq": 7,
+          "dispatch_seq": 7,
+          "wait_seconds": 0.0,
+          "was_queued": false
+        },
+        "score": 0.9995,
+        "text": "I really enjoy working with Docker and AWS!",
+        "worker": "worker1"
+      },
+      "raw_body": null,
+      "error": null,
+      "started_at": "2026-11-01T20:47:44.093474+00:00",
+      "finished_at": "2026-11-01T20:47:44.319987+00:00",
+      "elapsed_seconds": 0.227,
+      "request_id": "single",
+      "text_sent": "I really enjoy working with Docker and AWS!",
+      "validation_errors": [],
+      "passed": true
+    },
+    "invalid_payload": {
+      "http_status": 400,
+      "response": {
+        "error": "JSON body with a 'text' field is required"
+      },
+      "raw_body": null,
+      "error": null,
+      "started_at": "2026-11-01T20:47:44.320430+00:00",
+      "finished_at": "2026-11-01T20:47:44.456458+00:00",
+      "elapsed_seconds": 0.136,
+      "passed": true
+    },
+    "parallel": {
+      "passed": true,
+      "requests_sent": 2,
+      "successful_responses": 2,
+      "workers_observed": [
+        "worker1",
+        "worker2"
+      ],
+      "both_workers_observed": true,
+      "requests": [
+        {
+          "http_status": 200,
+          "response": {
+            "label": "POSITIVE",
+            "queue_metrics": {
+              "arrival_seq": 9,
+              "dispatch_seq": 9,
+              "wait_seconds": 0.0,
+              "was_queued": false
+            },
+            "score": 0.9999,
+            "text": "parallel request 1: This is a wonderful cloud computing course!",
+            "worker": "worker2"
+          },
+          "raw_body": null,
+          "error": null,
+          "started_at": "2026-11-01T20:47:44.457806+00:00",
+          "finished_at": "2026-11-01T20:47:44.737359+00:00",
+          "elapsed_seconds": 0.28,
+          "request_id": 1,
+          "text_sent": "parallel request 1: This is a wonderful cloud computing course!",
+          "validation_errors": [],
+          "passed": true
+        },
+        {
+          "http_status": 200,
+          "response": {
+            "label": "POSITIVE",
+            "queue_metrics": {
+              "arrival_seq": 8,
+              "dispatch_seq": 8,
+              "wait_seconds": 0.0,
+              "was_queued": false
+            },
+            "score": 0.9999,
+            "text": "parallel request 2: This is a wonderful cloud computing course!",
+            "worker": "worker1"
+          },
+          "raw_body": null,
+          "error": null,
+          "started_at": "2026-11-01T20:47:44.458208+00:00",
+          "finished_at": "2026-11-01T20:47:44.736855+00:00",
+          "elapsed_seconds": 0.279,
+          "request_id": 2,
+          "text_sent": "parallel request 2: This is a wonderful cloud computing course!",
+          "validation_errors": [],
+          "passed": true
+        }
+      ]
+    },
+    "burst": {
+      "passed": true,
+      "requests_sent": 8,
+      "successful_responses": 8,
+      "workers_observed": [
+        "worker1",
+        "worker2"
+      ],
+      "both_workers_observed": true,
+      "requests": [
+        {
+          "http_status": 200,
+          "response": {
+            "label": "POSITIVE",
+            "queue_metrics": {
+              "arrival_seq": 15,
+              "dispatch_seq": 15,
+              "wait_seconds": 0.081,
+              "was_queued": true
+            },
+            "score": 0.9999,
+            "text": "burst request 1: This is a wonderful cloud computing course!",
+            "worker": "worker1"
+          },
+          "raw_body": null,
+          "error": null,
+          "started_at": "2026-11-01T20:47:44.739086+00:00",
+          "finished_at": "2026-11-01T20:47:44.938417+00:00",
+          "elapsed_seconds": 0.199,
+          "request_id": 1,
+          "text_sent": "burst request 1: This is a wonderful cloud computing course!",
+          "validation_errors": [],
+          "passed": true
+        },
+        {
+          "http_status": 200,
+          "response": {
+            "label": "POSITIVE",
+            "queue_metrics": {
+              "arrival_seq": 17,
+              "dispatch_seq": 17,
+              "wait_seconds": 0.124,
+              "was_queued": true
+            },
+            "score": 0.9999,
+            "text": "burst request 2: This is a wonderful cloud computing course!",
+            "worker": "worker1"
+          },
+          "raw_body": null,
+          "error": null,
+          "started_at": "2026-11-01T20:47:44.739321+00:00",
+          "finished_at": "2026-11-01T20:47:45.012686+00:00",
+          "elapsed_seconds": 0.273,
+          "request_id": 2,
+          "text_sent": "burst request 2: This is a wonderful cloud computing course!",
+          "validation_errors": [],
+          "passed": true
+        },
+        {
+          "http_status": 200,
+          "response": {
+            "label": "POSITIVE",
+            "queue_metrics": {
+              "arrival_seq": 16,
+              "dispatch_seq": 16,
+              "wait_seconds": 0.112,
+              "was_queued": true
+            },
+            "score": 0.9999,
+            "text": "burst request 3: This is a wonderful cloud computing course!",
+            "worker": "worker2"
+          },
+          "raw_body": null,
+          "error": null,
+          "started_at": "2026-11-01T20:47:44.741014+00:00",
+          "finished_at": "2026-11-01T20:47:44.972380+00:00",
+          "elapsed_seconds": 0.231,
+          "request_id": 3,
+          "text_sent": "burst request 3: This is a wonderful cloud computing course!",
+          "validation_errors": [],
+          "passed": true
+        },
+        {
+          "http_status": 200,
+          "response": {
+            "label": "POSITIVE",
+            "queue_metrics": {
+              "arrival_seq": 13,
+              "dispatch_seq": 13,
+              "wait_seconds": 0.045,
+              "was_queued": true
+            },
+            "score": 0.9999,
+            "text": "burst request 4: This is a wonderful cloud computing course!",
+            "worker": "worker1"
+          },
+          "raw_body": null,
+          "error": null,
+          "started_at": "2026-11-01T20:47:44.740135+00:00",
+          "finished_at": "2026-11-01T20:47:44.886515+00:00",
+          "elapsed_seconds": 0.146,
+          "request_id": 4,
+          "text_sent": "burst request 4: This is a wonderful cloud computing course!",
+          "validation_errors": [],
+          "passed": true
+        },
+        {
+          "http_status": 200,
+          "response": {
+            "label": "POSITIVE",
+            "queue_metrics": {
+              "arrival_seq": 14,
+              "dispatch_seq": 14,
+              "wait_seconds": 0.077,
+              "was_queued": true
+            },
+            "score": 0.9999,
+            "text": "burst request 5: This is a wonderful cloud computing course!",
+            "worker": "worker2"
+          },
+          "raw_body": null,
+          "error": null,
+          "started_at": "2026-11-01T20:47:44.740444+00:00",
+          "finished_at": "2026-11-01T20:47:44.917011+00:00",
+          "elapsed_seconds": 0.177,
+          "request_id": 5,
+          "text_sent": "burst request 5: This is a wonderful cloud computing course!",
+          "validation_errors": [],
+          "passed": true
+        },
+        {
+          "http_status": 200,
+          "response": {
+            "label": "POSITIVE",
+            "queue_metrics": {
+              "arrival_seq": 10,
+              "dispatch_seq": 10,
+              "wait_seconds": 0.002,
+              "was_queued": false
+            },
+            "score": 0.9999,
+            "text": "burst request 6: This is a wonderful cloud computing course!",
+            "worker": "worker1"
+          },
+          "raw_body": null,
+          "error": null,
+          "started_at": "2026-11-01T20:47:44.739554+00:00",
+          "finished_at": "2026-11-01T20:47:44.854606+00:00",
+          "elapsed_seconds": 0.115,
+          "request_id": 6,
+          "text_sent": "burst request 6: This is a wonderful cloud computing course!",
+          "validation_errors": [],
+          "passed": true
+        },
+        {
+          "http_status": 200,
+          "response": {
+            "label": "POSITIVE",
+            "queue_metrics": {
+              "arrival_seq": 11,
+              "dispatch_seq": 11,
+              "wait_seconds": 0.004,
+              "was_queued": false
+            },
+            "score": 0.9999,
+            "text": "burst request 7: This is a wonderful cloud computing course!",
+            "worker": "worker2"
+          },
+          "raw_body": null,
+          "error": null,
+          "started_at": "2026-11-01T20:47:44.739906+00:00",
+          "finished_at": "2026-11-01T20:47:44.849716+00:00",
+          "elapsed_seconds": 0.11,
+          "request_id": 7,
+          "text_sent": "burst request 7: This is a wonderful cloud computing course!",
+          "validation_errors": [],
+          "passed": true
+        },
+        {
+          "http_status": 200,
+          "response": {
+            "label": "POSITIVE",
+            "queue_metrics": {
+              "arrival_seq": 12,
+              "dispatch_seq": 12,
+              "wait_seconds": 0.039,
+              "was_queued": true
+            },
+            "score": 0.9999,
+            "text": "burst request 8: This is a wonderful cloud computing course!",
+            "worker": "worker2"
+          },
+          "raw_body": null,
+          "error": null,
+          "started_at": "2026-11-01T20:47:44.740824+00:00",
+          "finished_at": "2026-11-01T20:47:44.879938+00:00",
+          "elapsed_seconds": 0.139,
+          "request_id": 8,
+          "text_sent": "burst request 8: This is a wonderful cloud computing course!",
+          "validation_errors": [],
+          "passed": true
+        }
+      ],
+      "fifo_queue_proven": false,
+      "queue_evidence_note": "More than two concurrent client requests were submitted. Success shows that they were handled, but does not prove that both workers were simultaneously busy or establish FIFO order. Confirm FIFO with a controlled slow-worker test or server-side queue instrumentation."
+    },
+    "live_fifo": {
+      "passed": false,
+      "environment": "AWS real workers with processing delay",
+      "requests_sent": 7,
+      "staggered_queue_order": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+      ],
+      "server_arrival_order": [
+        "warmup1",
+        "warmup2",
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+      ],
+      "server_dispatch_order": [
+        "warmup1",
+        "warmup2",
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+      ],
+      "queued_requests_A_to_E": 0,
+      "max_queue_wait_seconds": 0.0,
+      "fifo_proven_on_aws": false,
+      "errors": [
+        "Insufficient evidence of a real queue: fewer than 3 A-E requests waited or maximum wait < 0.5s; verify PROCESSING_DELAY on AWS"
+      ],
+      "requests": {
+        "warmup1": {
+          "http_status": 200,
+          "response": {
+            "label": "POSITIVE",
+            "queue_metrics": {
+              "arrival_seq": 18,
+              "dispatch_seq": 18,
+              "wait_seconds": 0.001,
+              "was_queued": false
+            },
+            "score": 0.9999,
+            "text": "live FIFO warmup1: A wonderful movie.",
+            "worker": "worker1"
+          },
+          "raw_body": null,
+          "error": null,
+          "started_at": "2026-11-01T20:47:45.014867+00:00",
+          "finished_at": "2026-11-01T20:47:45.261572+00:00",
+          "elapsed_seconds": 0.247,
+          "request_id": "warmup1",
+          "text_sent": "live FIFO warmup1: A wonderful movie.",
+          "validation_errors": [],
+          "passed": true
+        },
+        "warmup2": {
+          "http_status": 200,
+          "response": {
+            "label": "POSITIVE",
+            "queue_metrics": {
+              "arrival_seq": 19,
+              "dispatch_seq": 19,
+              "wait_seconds": 0.002,
+              "was_queued": false
+            },
+            "score": 0.9999,
+            "text": "live FIFO warmup2: A wonderful movie.",
+            "worker": "worker2"
+          },
+          "raw_body": null,
+          "error": null,
+          "started_at": "2026-11-01T20:47:45.015389+00:00",
+          "finished_at": "2026-11-01T20:47:45.261902+00:00",
+          "elapsed_seconds": 0.247,
+          "request_id": "warmup2",
+          "text_sent": "live FIFO warmup2: A wonderful movie.",
+          "validation_errors": [],
+          "passed": true
+        },
+        "A": {
+          "http_status": 200,
+          "response": {
+            "label": "POSITIVE",
+            "queue_metrics": {
+              "arrival_seq": 20,
+              "dispatch_seq": 20,
+              "wait_seconds": 0.0,
+              "was_queued": false
+            },
+            "score": 0.9999,
+            "text": "live FIFO A: A wonderful movie.",
+            "worker": "worker1"
+          },
+          "raw_body": null,
+          "error": null,
+          "started_at": "2026-11-01T20:47:45.520275+00:00",
+          "finished_at": "2026-11-01T20:47:45.660670+00:00",
+          "elapsed_seconds": 0.14,
+          "request_id": "A",
+          "text_sent": "live FIFO A: A wonderful movie.",
+          "validation_errors": [],
+          "passed": true
+        },
+        "B": {
+          "http_status": 200,
+          "response": {
+            "label": "POSITIVE",
+            "queue_metrics": {
+              "arrival_seq": 21,
+              "dispatch_seq": 21,
+              "wait_seconds": 0.0,
+              "was_queued": false
+            },
+            "score": 0.9999,
+            "text": "live FIFO B: A wonderful movie.",
+            "worker": "worker1"
+          },
+          "raw_body": null,
+          "error": null,
+          "started_at": "2026-11-01T20:47:45.645481+00:00",
+          "finished_at": "2026-11-01T20:47:45.786307+00:00",
+          "elapsed_seconds": 0.141,
+          "request_id": "B",
+          "text_sent": "live FIFO B: A wonderful movie.",
+          "validation_errors": [],
+          "passed": true
+        },
+        "C": {
+          "http_status": 200,
+          "response": {
+            "label": "POSITIVE",
+            "queue_metrics": {
+              "arrival_seq": 22,
+              "dispatch_seq": 22,
+              "wait_seconds": 0.0,
+              "was_queued": false
+            },
+            "score": 0.9999,
+            "text": "live FIFO C: A wonderful movie.",
+            "worker": "worker1"
+          },
+          "raw_body": null,
+          "error": null,
+          "started_at": "2026-11-01T20:47:45.770197+00:00",
+          "finished_at": "2026-11-01T20:47:45.933105+00:00",
+          "elapsed_seconds": 0.163,
+          "request_id": "C",
+          "text_sent": "live FIFO C: A wonderful movie.",
+          "validation_errors": [],
+          "passed": true
+        },
+        "D": {
+          "http_status": 200,
+          "response": {
+            "label": "POSITIVE",
+            "queue_metrics": {
+              "arrival_seq": 23,
+              "dispatch_seq": 23,
+              "wait_seconds": 0.0,
+              "was_queued": false
+            },
+            "score": 0.9999,
+            "text": "live FIFO D: A wonderful movie.",
+            "worker": "worker1"
+          },
+          "raw_body": null,
+          "error": null,
+          "started_at": "2026-11-01T20:47:45.895337+00:00",
+          "finished_at": "2026-11-01T20:47:46.018362+00:00",
+          "elapsed_seconds": 0.123,
+          "request_id": "D",
+          "text_sent": "live FIFO D: A wonderful movie.",
+          "validation_errors": [],
+          "passed": true
+        },
+        "E": {
+          "http_status": 200,
+          "response": {
+            "label": "POSITIVE",
+            "queue_metrics": {
+              "arrival_seq": 24,
+              "dispatch_seq": 24,
+              "wait_seconds": 0.0,
+              "was_queued": false
+            },
+            "score": 0.9999,
+            "text": "live FIFO E: A wonderful movie.",
+            "worker": "worker1"
+          },
+          "raw_body": null,
+          "error": null,
+          "started_at": "2026-11-01T20:47:46.020407+00:00",
+          "finished_at": "2026-11-01T20:47:46.186164+00:00",
+          "elapsed_seconds": 0.166,
+          "request_id": "E",
+          "text_sent": "live FIFO E: A wonderful movie.",
+          "validation_errors": [],
+          "passed": true
+        }
+      }
+    },
+    "local_fifo": {
+      "passed": true,
+      "queued_order": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+      ],
+      "dispatch_order": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+      ],
+      "environment": "local simulated workers",
+      "fifo_proven_on_aws": false
+    }
+  },
+  "summary": {
+    "all_http_and_response_checks_passed": true,
+    "both_workers_used_during_tests": true,
+    "fifo_queue_verified_on_aws": false,
+    "note": "Live FIFO runs on delayed AWS workers; local FIFO test is separate.",
+    "local_fifo_test_passed": true,
+    "all_selected_tests_passed": false
+  },
+  "endpoint": "http://54.161.197.169:80/new_request",
+  "configuration": {
+    "request_timeout_seconds": 240,
+    "parallel_requests": 2,
+    "burst_requests": 8
+  }
+}
